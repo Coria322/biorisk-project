@@ -8,7 +8,7 @@ class BoundingBox(BaseModel):
 
 class DetectionResult(BaseModel):
     label: str
-    confidence: str
+    confidence: float
     bbox: BoundingBox
 
 class DetectionResponse(BaseModel):
