@@ -181,6 +181,7 @@ export default function DetectionDashboard() {
 
     const fd2 = new FormData();
     fd2.append("file", file);
+    fd2.append("confidence", String(confidence))
 
     try {
       const [r1, r2] = await Promise.all([
@@ -279,9 +280,19 @@ export default function DetectionDashboard() {
                   style={{ maxHeight: 380 }}
                 />
                 {annotated && (
-                  <span className="absolute top-2 right-2 text-xs px-2 py-1 rounded bg-lime-400/20 text-lime-400 border border-lime-400/30">
-                    anotada
-                  </span>
+                  <div className="absolute top-2 right-2 flex gap-2">
+                    <span className="text-xs px-2 py-1 rounded bg-lime-400/20 text-lime-400 border border-lime-400/30 flex items-center">
+                      anotada
+                    </span>
+                    <a
+                      href={annotated}
+                      download={`deteccion-${Date.now()}.jpg`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs px-2 py-1 rounded bg-black/60 text-white/50 hover:text-white/90 hover:bg-black/80 border border-white/10 transition-colors flex items-center gap-1"
+                    >
+                      <span className="text-[10px]">⬇</span> Descargar
+                    </a>
+                  </div>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); reset(); }}
