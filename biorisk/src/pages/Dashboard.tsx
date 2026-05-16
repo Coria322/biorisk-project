@@ -113,11 +113,13 @@ export default function DetectionDashboard() {
   const [annotated, setAnnotated] = useState<string | null>(null);
   const [result, setResult] = useState<DetectResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isVideo, setIsVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classes, setClasses] = useState<ModelClass[]>([]);
   const [dragging, setDragging] = useState(false);
   const [confidence, setConfidence] = useState(0.5);
   const [modelOnline, setModelOnline] = useState<boolean | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Health check cada 2 minutos
@@ -156,17 +158,49 @@ export default function DetectionDashboard() {
     setError(null);
     const url = URL.createObjectURL(f);
     setPreview(url);
+    setIsVideo(f.type.startsWith("video/"));
   };
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const f = e.dataTransfer.files[0];
-    if (f && f.type.startsWith("image/")) handleFile(f);
+    if (f && (f.type.startsWith("image/") || f.type.startsWith("video/"))) handleFile(f);
   }, []);
 
   const onDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragging(true); };
   const onDragLeave = () => setDragging(false);
+
+  const handleDownloadReport = async () => {
+    if (!file) return;
+    setLoadingReport(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("confidence", String(confidence));
+
+      const response = await fetch(`${API_BASE}/detect/report`, {
+        method: "POST",
+        body: fd,
+      });
+
+      if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `reporte-biorisk-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error al generar el reporte");
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   const handleAnalyze = async () => {
     if (!file) return;
@@ -184,18 +218,41 @@ export default function DetectionDashboard() {
     fd2.append("confidence", String(confidence))
 
     try {
-      const [r1, r2] = await Promise.all([
-        fetch(`${API_BASE}/detect/`, { method: "POST", body: fd1 }),
-        fetch(`${API_BASE}/detect/image`, { method: "POST", body: fd2 }),
-      ]);
+      if (isVideo) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("confidence", String(confidence));
 
-      if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
-      const json: DetectResponse = await r1.json();
-      setResult(json);
+        const response = await fetch(`${API_BASE}/detect/video`, {
+          method: "POST",
+          body: fd,
+        });
 
-      if (r2.ok) {
-        const blob = await r2.blob();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
         setAnnotated(URL.createObjectURL(blob));
+      } else {
+        const fd1 = new FormData();
+        fd1.append("file", file);
+        if (confidence !== 0.5) fd1.append("confidence", String(confidence));
+
+        const fd2 = new FormData();
+        fd2.append("file", file);
+        fd2.append("confidence", String(confidence));
+
+        const [r1, r2] = await Promise.all([
+          fetch(`${API_BASE}/detect/`, { method: "POST", body: fd1 }),
+          fetch(`${API_BASE}/detect/image`, { method: "POST", body: fd2 }),
+        ]);
+
+        if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
+        const json: DetectResponse = await r1.json();
+        setResult(json);
+
+        if (r2.ok) {
+          const blob = await r2.blob();
+          setAnnotated(URL.createObjectURL(blob));
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error desconocido");
@@ -266,19 +323,31 @@ export default function DetectionDashboard() {
             <input
               ref={inputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               className="hidden"
               onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
             />
 
             {preview ? (
               <div className="relative">
-                <img
-                  src={annotated ?? preview}
-                  alt="preview"
-                  className="w-full rounded-xl object-contain"
-                  style={{ maxHeight: 380 }}
-                />
+                {isVideo ? (
+                  <video
+                    src={annotated ?? preview}
+                    autoPlay
+                    muted
+                    loop
+                    controls
+                    className="w-full rounded-xl object-contain bg-black"
+                    style={{ maxHeight: 380 }}
+                  />
+                ) : (
+                  <img
+                    src={annotated ?? preview}
+                    alt="preview"
+                    className="w-full rounded-xl object-contain"
+                    style={{ maxHeight: 380 }}
+                  />
+                )}
                 {annotated && (
                   <div className="absolute top-2 right-2 flex gap-2">
                     <span className="text-xs px-2 py-1 rounded bg-lime-400/20 text-lime-400 border border-lime-400/30 flex items-center">
@@ -305,9 +374,9 @@ export default function DetectionDashboard() {
               <div className="flex flex-col items-center justify-center py-16 px-8 text-center gap-3 select-none">
                 <div className="text-3xl text-white/20">⬆</div>
                 <p className="text-sm text-white/40">
-                  Arrastra una imagen o haz clic para seleccionar
+                  Arrastra una imagen o video, o haz clic para seleccionar
                 </p>
-                <p className="text-xs text-white/20">PNG, JPG, WEBP</p>
+                <p className="text-xs text-white/20">PNG, JPG, WEBP, MP4, MOV</p>
               </div>
             )}
           </div>
@@ -347,7 +416,7 @@ export default function DetectionDashboard() {
                 <span className="w-3 h-3 border border-black/40 border-t-black rounded-full animate-spin" />
                 Analizando…
               </span>
-            ) : "Analizar imagen"}
+            ) : isVideo ? "Analizar video" : "Analizar imagen"}
           </button>
 
           {error && (
@@ -427,6 +496,24 @@ export default function DetectionDashboard() {
                   })}
                 </div>
               )}
+
+              {/* Report button */}
+              <button
+                onClick={handleDownloadReport}
+                disabled={loadingReport}
+                className={`mt-2 w-full py-3 rounded-xl text-sm font-semibold uppercase tracking-widest transition-all ${
+                  loadingReport ? "bg-white/5 text-white/40 cursor-not-allowed" : "bg-white/10 text-white hover:bg-white/20 active:scale-[0.98]"
+                }`}
+              >
+                {loadingReport ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                    Generando Reporte…
+                  </span>
+                ) : (
+                  "📄 Descargar Reporte PDF"
+                )}
+              </button>
             </>
           )}
         </section>

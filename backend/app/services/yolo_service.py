@@ -2,14 +2,13 @@ from ultralytics import YOLO
 import numpy as np
 from app.schemas.detection import DetectionResult, BoundingBox
 
-BIORISK = 'backend/models/best.pt'
+BIORISK = 'backend/models/best_full.pt'
 
 
 class YOLOService:
     def __init__(self, model_path: str):
         self.model = YOLO(model_path)
 
-        # 🔥 SOLO optimización segura
         self.MIN_CONF = 0.35
         self.MAX_DETECTIONS = 50
 
@@ -19,7 +18,6 @@ class YOLOService:
 
         conf = max(confidence, self.MIN_CONF)
 
-        # ✔️ MODO ORIGINAL (ESTABLE)
         results = self.model(frame, conf=conf)
 
         detections = []

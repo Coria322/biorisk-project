@@ -29,3 +29,5 @@ Thumbs.db
 node_modules/
 dist/
 runs/
+venv_cuda/
+dataset_download/
