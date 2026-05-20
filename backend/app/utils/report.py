@@ -1,6 +1,6 @@
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 import datetime
@@ -79,6 +79,86 @@ def generate_pdf_report(annotated_image_bytes: bytes, detections: list) -> bytes
         elements.append(table)
     else:
         elements.append(Paragraph("No se encontraron detecciones con el umbral especificado.", styles['Normal']))
+
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+def generate_pdf_report_video(annotated_frames_bytes: list, detections: list) -> bytes:
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Title
+    title_style = styles['Heading1']
+    title_style.alignment = 1 # Center
+    elements.append(Paragraph("Reporte de Detección BioRisk (Video)", title_style))
+    elements.append(Spacer(1, 12))
+
+    # Date
+    date_style = styles['Normal']
+    date_style.alignment = 1
+    current_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    elements.append(Paragraph(f"Fecha de análisis: {current_date}", date_style))
+    elements.append(Spacer(1, 20))
+
+    # Detections Table
+    if detections:
+        data = [["Especie / Etiqueta", "Confianza Máxima", "Riesgo", "Descripción"]]
+        for det in detections:
+            risk = get_risk_info(det.label)
+            conf_str = f"{det.confidence * 100:.1f}%"
+            data.append([det.label.capitalize(), conf_str, risk['level'], risk['desc']])
+            
+        table = Table(data, colWidths=[120, 100, 80, 230])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#A3E635")),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph("No se encontraron detecciones con el umbral especificado.", styles['Normal']))
+
+    # Si hay fotogramas clave, los ponemos en la segunda página
+    if annotated_frames_bytes:
+        elements.append(PageBreak())
+        
+        # Subtítulo de fotogramas clave
+        section_style = styles['Heading2']
+        section_style.alignment = 1
+        elements.append(Paragraph("Fotogramas Clave de Mayor Confianza", section_style))
+        elements.append(Spacer(1, 15))
+        
+        grid_data = []
+        row = []
+        for f_bytes in annotated_frames_bytes:
+            img_io = BytesIO(f_bytes)
+            # 220x165 es una proporción que cabe perfectamente en una grilla de 2 columnas
+            img = Image(img_io, width=220, height=165)
+            row.append(img)
+            if len(row) == 2:
+                grid_data.append(row)
+                row = []
+        if row:
+            row.append("") # Celda vacía
+            grid_data.append(row)
+            
+        grid_table = Table(grid_data, colWidths=[240, 240])
+        grid_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 15),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(grid_table)
 
     doc.build(elements)
     pdf = buffer.getvalue()

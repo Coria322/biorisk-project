@@ -117,7 +117,7 @@ export default function DetectionDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [classes, setClasses] = useState<ModelClass[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [confidence, setConfidence] = useState(0.5);
+  const [confidence, setConfidence] = useState(0.65);
   const [modelOnline, setModelOnline] = useState<boolean | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -204,18 +204,17 @@ export default function DetectionDashboard() {
 
   const handleAnalyze = async () => {
     if (!file) return;
+    console.log("=== INICIO DE ANÁLISIS EN FRONTEND ===");
+    console.log(`[FRONTEND] Archivo seleccionado: "${file.name}"`);
+    console.log(`[FRONTEND] Tamaño del archivo: ${(file.size / (1024 * 1024)).toFixed(2)} MB`);
+    console.log(`[FRONTEND] Tipo MIME: "${file.type}"`);
+    console.log(`[FRONTEND] ¿Es video?: ${isVideo}`);
+    console.log(`[FRONTEND] Umbral de confianza del slider: ${confidence}`);
+
     setLoading(true);
     setError(null);
     setResult(null);
     setAnnotated(null);
-
-    const fd1 = new FormData();
-    fd1.append("file", file);
-    if (confidence !== 0.5) fd1.append("confidence", String(confidence));
-
-    const fd2 = new FormData();
-    fd2.append("file", file);
-    fd2.append("confidence", String(confidence))
 
     try {
       if (isVideo) {
@@ -223,38 +222,85 @@ export default function DetectionDashboard() {
         fd.append("file", file);
         fd.append("confidence", String(confidence));
 
-        const response = await fetch(`${API_BASE}/detect/video`, {
+        const url = `${API_BASE}/detect/video`;
+        console.log(`[FRONTEND] Enviando petición POST a: ${url}`);
+
+        const response = await fetch(url, {
           method: "POST",
           body: fd,
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        console.log(`[FRONTEND] Respuesta recibida. HTTP Status: ${response.status} (${response.statusText})`);
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "Sin cuerpo de error");
+          console.error(`[FRONTEND] [ERROR HTTP] El servidor retornó error:`, errText);
+          throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
+
+        // Leer cabecera de respuesta con resultados de detección
+        console.log("[FRONTEND] Inspeccionando cabeceras de respuesta...");
+        const detectionsHeader = response.headers.get("x-detections");
+        
+        // Imprimir todas las cabeceras recibidas para diagnóstico de CORS
+        const headersObj: Record<string, string> = {};
+        response.headers.forEach((val, key) => {
+          headersObj[key] = val;
+        });
+        console.log("[FRONTEND] Cabeceras de respuesta recibidas:", headersObj);
+
+        if (detectionsHeader) {
+          console.log(`[FRONTEND] Cabecera 'x-detections' encontrada:`, detectionsHeader);
+          try {
+            const parsed = JSON.parse(detectionsHeader);
+            console.log("[FRONTEND] Cabecera parseada correctamente como JSON:", parsed);
+            setResult(parsed);
+          } catch (e) {
+            console.error("[FRONTEND] [ERROR] Falló el parseo de la cabecera 'x-detections':", e);
+          }
+        } else {
+          console.warn("[FRONTEND] [CUIDADO] No se encontró la cabecera 'x-detections' en la respuesta. ¿CORS la está bloqueando?");
+        }
+
+        console.log("[FRONTEND] Descargando binario del video (Blob)...");
         const blob = await response.blob();
-        setAnnotated(URL.createObjectURL(blob));
+        console.log(`[FRONTEND] Blob de video descargado. Tamaño: ${(blob.size / (1024 * 1024)).toFixed(2)} MB`);
+        
+        const blobUrl = URL.createObjectURL(blob);
+        console.log(`[FRONTEND] URL de objeto creada para reproducción: ${blobUrl}`);
+        setAnnotated(blobUrl);
       } else {
         const fd1 = new FormData();
         fd1.append("file", file);
-        if (confidence !== 0.5) fd1.append("confidence", String(confidence));
+        fd1.append("confidence", String(confidence));
 
         const fd2 = new FormData();
         fd2.append("file", file);
         fd2.append("confidence", String(confidence));
 
+        console.log("[FRONTEND] Enviando peticiones paralelas para Imagen...");
         const [r1, r2] = await Promise.all([
           fetch(`${API_BASE}/detect/`, { method: "POST", body: fd1 }),
           fetch(`${API_BASE}/detect/image`, { method: "POST", body: fd2 }),
         ]);
 
+        console.log(`[FRONTEND] Respuestas de imagen. /detect/: ${r1.status}, /detect/image: ${r2.status}`);
+
         if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
         const json: DetectResponse = await r1.json();
+        console.log("[FRONTEND] JSON de detecciones de imagen:", json);
         setResult(json);
 
         if (r2.ok) {
           const blob = await r2.blob();
-          setAnnotated(URL.createObjectURL(blob));
+          const blobUrl = URL.createObjectURL(blob);
+          console.log(`[FRONTEND] Imagen anotada blob URL creada: ${blobUrl}`);
+          setAnnotated(blobUrl);
         }
       }
+      console.log("=== FIN DE ANÁLISIS EXITOSO EN FRONTEND ===");
     } catch (e) {
+      console.error("[FRONTEND] [ERROR GLOBAL] Error en el proceso de análisis:", e);
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
       setLoading(false);
@@ -332,6 +378,7 @@ export default function DetectionDashboard() {
               <div className="relative">
                 {isVideo ? (
                   <video
+                    key={annotated ?? preview}
                     src={annotated ?? preview}
                     autoPlay
                     muted
@@ -355,7 +402,7 @@ export default function DetectionDashboard() {
                     </span>
                     <a
                       href={annotated}
-                      download={`deteccion-${Date.now()}.jpg`}
+                      download={isVideo ? `deteccion-${Date.now()}.mp4` : `deteccion-${Date.now()}.jpg`}
                       onClick={(e) => e.stopPropagation()}
                       className="text-xs px-2 py-1 rounded bg-black/60 text-white/50 hover:text-white/90 hover:bg-black/80 border border-white/10 transition-colors flex items-center gap-1"
                     >

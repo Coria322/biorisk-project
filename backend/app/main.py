@@ -14,6 +14,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["x-detections"],
 )
 
 app.include_router(detection.router)
