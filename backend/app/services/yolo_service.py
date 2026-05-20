@@ -2,7 +2,7 @@ from ultralytics import YOLO
 import numpy as np
 from app.schemas.detection import DetectionResult, BoundingBox
 
-BIORISK = 'backend/models/best_full.pt'
+BIORISK = 'backend/models/modelo_ds_completo.pt'
 
 
 class YOLOService:
